@@ -1,0 +1,19 @@
+# Python / CV
+.venv/
+__pycache__/
+*.pyc
+data/
+
+# Models & media (large binaries)
+models/
+*.pth
+*.pt
+*.mlpackage
+*.mp4
+*.mov
+
+# Xcode
+*.xcuserdata/
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/

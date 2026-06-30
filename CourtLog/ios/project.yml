@@ -1,0 +1,30 @@
+name: CourtLog
+options:
+  bundleIdPrefix: com.courtlog
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "15.0"
+
+targets:
+  CourtLog:
+    type: application
+    platform: iOS
+    sources:
+      - CourtLog
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.courtlog.app
+      SWIFT_VERSION: "5.9"
+      TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: CourtLog/Info.plist
+      properties:
+        NSCameraUsageDescription: "CourtLog records your practice session to analyze ball placement."
+        NSHealthShareUsageDescription: "Sync heart rate and calories from Apple Watch during practice."
+        NSHealthUpdateUsageDescription: "Save tennis workouts to Apple Health."
+        UILaunchScreen: {}
+
+schemes:
+  CourtLog:
+    build:
+      targets:
+        CourtLog: all
