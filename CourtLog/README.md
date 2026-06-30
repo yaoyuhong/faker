@@ -16,12 +16,28 @@ CourtLog/
 
 ## Quick start (developers)
 
-### iOS (requires macOS + Xcode 15+)
+### 1. CV 服务（Mac / Linux）
 
-1. Open `ios/CourtLog.xcodeproj`
+```bash
+cd CourtLog/cv-service
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 可选：下载 TrackNet 权重（约 50MB）
+pip install gdown && python scripts/download_weights.py
+
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+健康检查：`curl http://localhost:8000/health`
+
+### 2. iOS App（需要 Mac + Xcode 15+）
+
+1. Open `ios/CourtLog.xcodeproj` (or run `xcodegen generate` in `ios/`)
 2. Set your Development Team in Signing & Capabilities
-3. Enable HealthKit capability
-4. Run on a physical iPhone (camera + HealthKit require device)
+3. Enable **HealthKit** capability
+4. On **真机**运行（模拟器无法完整测试相机/手表）
+5. 真机调试时，在代码或设置里把 API 地址改为 Mac 局域网 IP，例如 `http://192.168.1.10:8000/v1`
 
 ### CV service (optional, for cloud post-processing)
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app.ball_tracker import TrackNetBallTracker
+from app.ball_tracker import BallObservation, TrackNetBallTracker
 from app.bounce_detector import detect_bounces
 from app.homography import compute_homography, image_to_court
 
@@ -19,7 +19,12 @@ def run_pipeline(
     heatmap_grid: int = 10,
 ) -> dict:
     tracker = TrackNetBallTracker(weights_path=weights_path)
-    observations = tracker.track_video(video_path)
+    observations: list[BallObservation]
+
+    if tracker.is_ready:
+        observations = tracker.track_video(video_path)
+    else:
+        observations = _synthetic_observations(video_path)
 
     h = compute_homography(
         np.array(image_points, dtype=np.float64),
@@ -59,10 +64,46 @@ def run_pipeline(
         "ballPositions": ball_positions,
         "bounces": bounces,
         "heatmap": heatmap,
-        "maxSpeedKmh": max(speeds) if speeds else 0.0,
-        "avgSpeedKmh": sum(speeds) / len(speeds) if speeds else 0.0,
+        "maxSpeedKmh": round(max(speeds), 1) if speeds else 0.0,
+        "avgSpeedKmh": round(sum(speeds) / len(speeds), 1) if speeds else 0.0,
         "previewUrl": None,
+        "meta": {
+            "tracknet": tracker.is_ready,
+            "observationCount": len(ball_positions),
+        },
     }
+
+
+def _synthetic_observations(video_path: Path) -> list[BallObservation]:
+    """Demo path when TrackNet weights are missing — parabolic arc in frame."""
+    try:
+        import cv2
+    except ImportError:
+        return []
+
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    cap.release()
+
+    if frame_count <= 0:
+        frame_count = 90
+
+    observations: list[BallObservation] = []
+    for i in range(frame_count):
+        t = i / fps
+        x = 200 + (i / max(frame_count, 1)) * 400
+        y = 100 + abs(np.sin(i / 15)) * 120
+        observations.append(
+            BallObservation(
+                frame_index=i,
+                timestamp_sec=t,
+                x_pixel=x,
+                y_pixel=y,
+                visible=True,
+            )
+        )
+    return observations
 
 
 def _build_heatmap(

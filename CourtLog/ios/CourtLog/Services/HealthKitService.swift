@@ -9,6 +9,7 @@ final class HealthKitService: ObservableObject {
 
     private var workoutSession: HKWorkoutSession?
     private var builder: HKLiveWorkoutBuilder?
+    private var sessionStart: Date?
 
     func requestAuthorization() async {
         guard HKHealthStore.isHealthDataAvailable() else {
@@ -30,7 +31,6 @@ final class HealthKitService: ObservableObject {
         }
     }
 
-    /// Start tennis workout — requires Watch companion or phone-only workout in v0.2.
     func startWorkout() async throws {
         let config = HKWorkoutConfiguration()
         config.activityType = .tennis
@@ -42,6 +42,7 @@ final class HealthKitService: ObservableObject {
 
         workoutSession = session
         self.builder = builder
+        sessionStart = .now
 
         session.startActivity(with: .now)
         try await builder.beginCollection(at: .now)
@@ -60,31 +61,36 @@ final class HealthKitService: ObservableObject {
         let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate)!
         let energyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!
 
-        let avgHR = try await averageQuantity(for: hrType, unit: .count().unitDivided(by: .minute()))
-        let energy = try await sumQuantity(for: energyType, unit: .kilocalorie())
+        let hrUnit = HKUnit.count().unitDivided(by: .minute())
+        let avgHR = builder.statistics(for: hrType)?
+            .averageQuantity()?
+            .doubleValue(for: hrUnit)
 
+        let maxHR = builder.statistics(for: hrType)?
+            .maximumQuantity()?
+            .doubleValue(for: hrUnit)
+
+        let energy = builder.statistics(for: energyType)?
+            .sumQuantity()?
+            .doubleValue(for: .kilocalorie())
+
+        let start = sessionStart ?? session.startDate ?? end
         workoutSession = nil
         self.builder = nil
+        sessionStart = nil
 
         return HealthSummary(
             avgHeartRate: avgHR,
+            maxHeartRate: maxHR,
             activeCalories: energy,
-            durationSec: end.timeIntervalSince(session.startDate ?? end)
+            durationSec: end.timeIntervalSince(start)
         )
-    }
-
-    private func averageQuantity(for type: HKQuantityType, unit: HKUnit) async throws -> Double? {
-        // Placeholder — query statistics from builder in production
-        nil
-    }
-
-    private func sumQuantity(for type: HKQuantityType, unit: HKUnit) async throws -> Double? {
-        nil
     }
 }
 
 struct HealthSummary {
     var avgHeartRate: Double?
+    var maxHeartRate: Double?
     var activeCalories: Double?
     var durationSec: Double?
 }

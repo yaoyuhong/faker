@@ -29,6 +29,7 @@ def main() -> None:
         raise SystemExit("Install torch and coremltools first") from e
 
     # TODO: import TrackNet architecture from vendor/tracknet
+    from vendor.tracknet.model import BallTrackerNet
     # model = TrackNet()
     # model.load_state_dict(torch.load(args.weights, map_location="cpu"))
     # model.eval()

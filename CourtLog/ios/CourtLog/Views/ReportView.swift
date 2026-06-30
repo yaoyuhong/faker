@@ -3,6 +3,11 @@ import SwiftUI
 struct ReportView: View {
     let session: Session
 
+  private var analysis: AnalysisResult? {
+        guard let data = session.analysisJSON else { return nil }
+        return try? JSONDecoder().decode(AnalysisResult.self, from: data)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -12,25 +17,39 @@ struct ReportView: View {
                 HStack {
                     StatCard(title: "时长", value: formatDuration(session.durationSec), icon: "clock")
                     if let hr = session.avgHeartRate {
-                        StatCard(title: "平均心率", value: "\(Int(hr))", icon: "heart.fill")
+                        StatCard(title: "平均心率", value: "\(Int(hr)) bpm", icon: "heart.fill")
                     }
                 }
 
                 Text("落点热力图")
                     .font(.headline)
 
-                HeatmapView(grid: mockHeatmap())
+                HeatmapView(grid: heatmapGrid())
                     .frame(height: 280)
                     .background(.green.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
 
                 HStack {
-                    StatCard(title: "最高球速", value: "— km/h", icon: "speedometer")
-                    StatCard(title: "平均球速", value: "— km/h", icon: "gauge.medium")
+                    StatCard(
+                        title: "最高球速",
+                        value: speedText(analysis?.bounces.map(\.speedKmh).max()),
+                        icon: "speedometer"
+                    )
+                    StatCard(
+                        title: "平均球速",
+                        value: avgSpeedText(),
+                        icon: "gauge.medium"
+                    )
                 }
 
-                Text("分析完成后将显示真实数据")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let analysis, !analysis.bounces.isEmpty {
+                    Text("落点记录 \(analysis.bounces.count) 次")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if analysis == nil {
+                    Text("尚无分析数据")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding()
         }
@@ -42,9 +61,24 @@ struct ReportView: View {
         return "\(m) 分钟"
     }
 
-    private func mockHeatmap() -> [[Double]] {
-        // Placeholder until analysis JSON is loaded
-        Array(repeating: Array(repeating: 0.0, count: 10), count: 20)
+    private func heatmapGrid() -> [[Double]] {
+        guard let counts = analysis?.heatmap.counts else {
+            return Array(repeating: Array(repeating: 0.0, count: 10), count: 20)
+        }
+        let maxVal = Double(counts.flatMap { $0 }.max() ?? 1)
+        return counts.map { row in row.map { Double($0) / maxVal } }
+    }
+
+    private func speedText(_ value: Double?) -> String {
+        guard let value else { return "— km/h" }
+        return String(format: "%.0f km/h", value)
+    }
+
+    private func avgSpeedText() -> String {
+        let speeds = analysis?.bounces.map(\.speedKmh) ?? []
+        guard !speeds.isEmpty else { return "— km/h" }
+        let avg = speeds.reduce(0, +) / Double(speeds.count)
+        return String(format: "%.0f km/h", avg)
     }
 }
 
@@ -76,11 +110,9 @@ struct HeatmapView: View {
             let cols = grid.first?.count ?? 1
             let cellW = size.width / CGFloat(cols)
             let cellH = size.height / CGFloat(rows)
-            let maxVal = grid.flatMap { $0 }.max() ?? 1
 
             for (r, row) in grid.enumerated() {
                 for (c, val) in row.enumerated() {
-                    let intensity = maxVal > 0 ? val / maxVal : 0
                     let rect = CGRect(
                         x: CGFloat(c) * cellW,
                         y: CGFloat(r) * cellH,
@@ -89,12 +121,11 @@ struct HeatmapView: View {
                     )
                     context.fill(
                         Path(rect),
-                        with: .color(.red.opacity(0.15 + intensity * 0.75))
+                        with: .color(.red.opacity(0.15 + val * 0.75))
                     )
                 }
             }
 
-            // Court outline
             context.stroke(
                 Path(CGRect(x: 0, y: 0, width: size.width, height: size.height)),
                 with: .color(.white),

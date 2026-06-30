@@ -1,17 +1,33 @@
-"""FastAPI entrypoint — v0.1 stub with mock analysis."""
+"""FastAPI entrypoint — upload, background analysis, job polling."""
 
 from __future__ import annotations
 
+import logging
+import shutil
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="CourtLog CV API", version="0.1.0")
+from app.config import SESSIONS_DIR, TRACKNET_WEIGHTS
+from app.pipeline import run_pipeline
 
-# In-memory job store (replace with Redis + worker)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="CourtLog CV API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+_EXECUTOR = ThreadPoolExecutor(max_workers=2)
 _JOBS: dict[str, dict[str, Any]] = {}
 _SESSIONS: dict[str, dict[str, Any]] = {}
 
@@ -67,6 +83,7 @@ class AnalysisResult(BaseModel):
     max_speed_kmh: float = Field(0, alias="maxSpeedKmh")
     avg_speed_kmh: float = Field(0, alias="avgSpeedKmh")
     preview_url: str | None = Field(None, alias="previewUrl")
+    meta: dict[str, Any] | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -78,36 +95,73 @@ class JobStatus(BaseModel):
     result: AnalysisResult | None = None
 
 
+def _session_dir(session_id: str) -> Path:
+    path = SESSIONS_DIR / session_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _video_path(session_id: str) -> Path:
+    return _session_dir(session_id) / "video.mp4"
+
+
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "tracknet_weights": TRACKNET_WEIGHTS.exists(),
+    }
 
 
 @app.post("/v1/sessions", response_model=CreateSessionResponse, status_code=201)
-def create_session(body: CreateSessionRequest) -> CreateSessionResponse:
+def create_session(body: CreateSessionRequest, base_url: str = "http://localhost:8000") -> CreateSessionResponse:
     session_id = uuid.uuid4()
-    _SESSIONS[str(session_id)] = {
+    sid = str(session_id)
+    _SESSIONS[sid] = {
         "calibration": body.calibration.model_dump(by_alias=True),
         "health": body.health.model_dump(by_alias=True) if body.health else None,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded": False,
     }
-    # MVP: local upload endpoint placeholder
-    upload_url = f"http://localhost:8000/v1/sessions/{session_id}/upload"
+    _session_dir(sid)
+    upload_url = f"{base_url}/v1/sessions/{session_id}/upload"
     return CreateSessionResponse(session_id=session_id, upload_url=upload_url)
 
 
-@app.post("/v1/sessions/{session_id}/analyze", response_model=JobResponse, status_code=202)
-def start_analysis(session_id: uuid.UUID) -> JobResponse:
-    if str(session_id) not in _SESSIONS:
+@app.put("/v1/sessions/{session_id}/upload")
+async def upload_video(session_id: uuid.UUID, file: UploadFile = File(...)) -> dict[str, str]:
+    sid = str(session_id)
+    if sid not in _SESSIONS:
         raise HTTPException(status_code=404, detail="session not found")
 
+    dest = _video_path(sid)
+    with dest.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    _SESSIONS[sid]["uploaded"] = True
+    _SESSIONS[sid]["video_path"] = str(dest)
+    return {"status": "uploaded", "sessionId": sid}
+
+
+@app.post("/v1/sessions/{session_id}/analyze", response_model=JobResponse, status_code=202)
+def start_analysis(session_id: uuid.UUID, background_tasks: BackgroundTasks) -> JobResponse:
+    sid = str(session_id)
+    session = _SESSIONS.get(sid)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    if not session.get("uploaded") and not _video_path(sid).exists():
+        raise HTTPException(status_code=400, detail="video not uploaded")
+
     job_id = uuid.uuid4()
-    _JOBS[str(job_id)] = {
-        "session_id": str(session_id),
-        "status": "done",
-        "progress": 1.0,
-        "result": _mock_analysis(),
+    jid = str(job_id)
+    _JOBS[jid] = {
+        "session_id": sid,
+        "status": "pending",
+        "progress": 0.0,
+        "result": None,
+        "error": None,
     }
+    background_tasks.add_task(_run_analysis, jid)
     return JobResponse(job_id=job_id)
 
 
@@ -124,18 +178,31 @@ def get_job(job_id: uuid.UUID) -> JobStatus:
     )
 
 
-def _mock_analysis() -> dict[str, Any]:
-    """Replace with pipeline.run() when TrackNet weights are available."""
-    grid = 10
-    counts = [[0] * grid for _ in range(grid * 2)]
-    counts[8][4] = 5
-    counts[9][5] = 3
-    counts[12][3] = 7
-    return {
-        "ballPositions": [{"t": 1.2, "x": 4.1, "y": 12.3}],
-        "bounces": [{"t": 1.25, "x": 4.1, "y": 12.3, "in": True, "speedKmh": 72.5}],
-        "heatmap": {"grid": grid, "counts": counts},
-        "maxSpeedKmh": 98.2,
-        "avgSpeedKmh": 61.4,
-        "previewUrl": None,
-    }
+def _run_analysis(job_id: str) -> None:
+    job = _JOBS[job_id]
+    sid = job["session_id"]
+    session = _SESSIONS[sid]
+    job["status"] = "running"
+    job["progress"] = 0.1
+
+    try:
+        calibration = session["calibration"]
+        image_points = [(p["x"], p["y"]) for p in calibration["imagePoints"]]
+        court_points = [(p["x"], p["y"]) for p in calibration["courtPointsMeters"]]
+        video = Path(session.get("video_path", _video_path(sid)))
+
+        job["progress"] = 0.3
+        result = run_pipeline(
+            video_path=video,
+            image_points=image_points,
+            court_points=court_points,
+            weights_path=TRACKNET_WEIGHTS if TRACKNET_WEIGHTS.exists() else None,
+        )
+        job["progress"] = 1.0
+        job["status"] = "done"
+        job["result"] = result
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("analysis failed for job %s", job_id)
+        job["status"] = "failed"
+        job["error"] = str(exc)
+        job["progress"] = 1.0

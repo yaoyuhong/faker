@@ -18,8 +18,6 @@ final class Session: Identifiable {
     var avgHeartRate: Double?
     var maxHeartRate: Double?
     var activeCalories: Double?
-
-    // Cached analysis (decoded from API)
     var analysisJSON: Data?
 
     init(
@@ -78,6 +76,12 @@ struct AnalysisResult: Codable {
     var maxSpeedKmh: Double
     var avgSpeedKmh: Double
     var previewUrl: String?
+    var meta: AnalysisMeta?
+}
+
+struct AnalysisMeta: Codable {
+    var tracknet: Bool?
+    var observationCount: Int?
 }
 
 struct BallPosition: Codable {

@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// User taps 4 court corners on a frozen camera frame.
+/// User taps 4 court corners on camera overlay (stored as normalized 0–1).
 struct CalibrationView: View {
     @Binding var points: [CGPoint]
+    @Binding var overlaySize: CGSize
     let onContinue: () -> Void
 
     private let labels = ["近端左角", "近端右角", "远端右角", "远端左角"]
@@ -11,52 +12,59 @@ struct CalibrationView: View {
         VStack {
             Text("标定球场四角")
                 .font(.headline)
-            Text("请依次点击 \(labels[safe: points.count] ?? "完成")")
+            Text("请依次点击：\(labels[safe: points.count] ?? "完成")")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.black.opacity(0.85))
-                    .aspectRatio(16/9, contentMode: .fit)
-                    .overlay {
-                        CourtOverlayGuide()
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onEnded { value in
-                                guard points.count < 4 else { return }
-                                points.append(value.location)
-                            }
-                    )
+            GeometryReader { geo in
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.black.opacity(0.85))
+                        .overlay { CourtOverlayGuide() }
 
-                ForEach(Array(points.enumerated()), id: \.offset) { index, point in
-                    Circle()
-                        .fill(.yellow)
-                        .frame(width: 16, height: 16)
-                        .position(point)
-                        .overlay {
-                            Text("\(index + 1)")
-                                .font(.caption2.bold())
-                                .foregroundStyle(.black)
-                                .position(point)
-                        }
+                    ForEach(Array(displayPoints(in: geo.size).enumerated()), id: \.offset) { index, point in
+                        Circle()
+                            .fill(.yellow)
+                            .frame(width: 16, height: 16)
+                            .position(point)
+                            .overlay {
+                                Text("\(index + 1)")
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(.black)
+                                    .position(point)
+                            }
+                    }
                 }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onEnded { value in
+                            guard points.count < 4, geo.size.width > 0, geo.size.height > 0 else { return }
+                            overlaySize = geo.size
+                            let nx = value.location.x / geo.size.width
+                            let ny = value.location.y / geo.size.height
+                            points.append(CGPoint(x: min(max(nx, 0), 1), y: min(max(ny, 0), 1)))
+                        }
+                )
+                .onAppear { overlaySize = geo.size }
+                .onChange(of: geo.size) { _, newSize in overlaySize = newSize }
             }
+            .aspectRatio(9 / 16, contentMode: .fit)
             .padding()
 
             HStack {
                 Button("重置") { points.removeAll() }
                     .disabled(points.isEmpty)
-
                 Spacer()
-
                 Button("下一步") { onContinue() }
                     .buttonStyle(.borderedProminent)
                     .disabled(points.count < 4)
             }
             .padding(.horizontal)
         }
+    }
+
+    private func displayPoints(in size: CGSize) -> [CGPoint] {
+        points.map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) }
     }
 }
 

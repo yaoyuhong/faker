@@ -6,10 +6,10 @@ final class CameraService: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var permissionGranted = false
     @Published var errorMessage: String?
+    @Published var lastRecordingURL: URL?
 
     private let session = AVCaptureSession()
     private let movieOutput = AVCaptureMovieFileOutput()
-    private var previewLayer: AVCaptureVideoPreviewLayer?
 
     var captureSession: AVCaptureSession { session }
 
@@ -44,7 +44,9 @@ final class CameraService: NSObject, ObservableObject {
         if session.canAddOutput(movieOutput) {
             session.addOutput(movieOutput)
             if let connection = movieOutput.connection(with: .video) {
-                connection.videoRotationAngle = 90
+                if connection.isVideoRotationAngleSupported(90) {
+                    connection.videoRotationAngle = 90
+                }
             }
         }
 
@@ -67,6 +69,10 @@ final class CameraService: NSObject, ObservableObject {
 
     func startRecording(to url: URL) {
         guard !movieOutput.isRecording else { return }
+        if FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        lastRecordingURL = nil
         movieOutput.startRecording(to: url, recordingDelegate: self)
         isRecording = true
     }
@@ -88,6 +94,8 @@ extension CameraService: AVCaptureFileOutputRecordingDelegate {
             isRecording = false
             if let error {
                 errorMessage = error.localizedDescription
+            } else {
+                lastRecordingURL = outputFileURL
             }
         }
     }
