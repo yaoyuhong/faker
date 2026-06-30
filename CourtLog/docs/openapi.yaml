@@ -1,0 +1,187 @@
+openapi: 3.1.0
+info:
+  title: CourtLog CV API
+  version: 0.1.0
+  description: Cloud analysis service for tennis session videos
+
+servers:
+  - url: https://api.courtlog.app/v1
+    description: Production (placeholder)
+  - url: http://localhost:8000/v1
+    description: Local development
+
+paths:
+  /sessions:
+    post:
+      summary: Create a session and get upload URL
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSessionResponse'
+
+  /sessions/{sessionId}/analyze:
+    post:
+      summary: Start CV analysis after video upload
+      operationId: startAnalysis
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Analysis job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+
+  /jobs/{jobId}:
+    get:
+      summary: Poll analysis job status
+      operationId: getJob
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatus'
+
+components:
+  schemas:
+    Point2D:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number }
+        y: { type: number }
+
+    Calibration:
+      type: object
+      required: [imagePoints, courtPointsMeters]
+      properties:
+        imagePoints:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/Point2D'
+        courtPointsMeters:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/Point2D'
+
+    HealthSummary:
+      type: object
+      properties:
+        avgHeartRate: { type: number }
+        maxHeartRate: { type: number }
+        activeCalories: { type: number }
+        durationSec: { type: number }
+
+    CreateSessionRequest:
+      type: object
+      required: [calibration]
+      properties:
+        calibration:
+          $ref: '#/components/schemas/Calibration'
+        health:
+          $ref: '#/components/schemas/HealthSummary'
+        deviceId:
+          type: string
+
+    CreateSessionResponse:
+      type: object
+      required: [sessionId, uploadUrl]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        uploadUrl:
+          type: string
+          format: uri
+
+    JobResponse:
+      type: object
+      required: [jobId]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+
+    BallPosition:
+      type: object
+      properties:
+        t: { type: number, description: seconds from session start }
+        x: { type: number, description: meters on court }
+        y: { type: number }
+
+    Bounce:
+      type: object
+      properties:
+        t: { type: number }
+        x: { type: number }
+        y: { type: number }
+        in: { type: boolean }
+        speedKmh: { type: number }
+
+    AnalysisResult:
+      type: object
+      properties:
+        ballPositions:
+          type: array
+          items:
+            $ref: '#/components/schemas/BallPosition'
+        bounces:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bounce'
+        heatmap:
+          type: object
+          properties:
+            grid: { type: integer }
+            counts:
+              type: array
+              items:
+                type: array
+                items: { type: integer }
+        maxSpeedKmh: { type: number }
+        avgSpeedKmh: { type: number }
+        previewUrl: { type: string, format: uri }
+
+    JobStatus:
+      type: object
+      required: [status, progress]
+      properties:
+        status:
+          type: string
+          enum: [pending, running, done, failed]
+        progress:
+          type: number
+          minimum: 0
+          maximum: 1
+        error: { type: string }
+        result:
+          $ref: '#/components/schemas/AnalysisResult'

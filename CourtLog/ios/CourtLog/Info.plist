@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key>
+    <string>CourtLog</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSCameraUsageDescription</key>
+    <string>CourtLog 需要相机录制你的网球训练，用于分析落点与球速。</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>从 Apple Watch 同步训练中的心率与卡路里数据。</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>将网球训练记录保存到 Apple 健康。</string>
+    <key>UILaunchScreen</key>
+    <dict/>
+</dict>
+</plist>
